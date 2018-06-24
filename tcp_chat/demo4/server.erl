@@ -20,7 +20,14 @@ loop(Postman, Socket) ->
         {tcp, Socket, Bin} ->
             Str = binary_to_term(Bin),
             io:format("Server (unpacked) ~p~n", [Str]),
-            Postman ! {broadcast, Socket, Str},
+            case Str of
+                {online, Nick} ->
+                    Postman ! {broadcast, Socket, Nick ++ "上线了"};
+                {talk, Nick, Msg} ->
+                    Postman ! {broadcast, Socket, Nick ++ ":" ++ Msg};
+                {quit, Nick} -> 
+                    Postman ! {broadcast, Socket, Nick ++ "下线了"}
+            end,
             loop(Postman, Socket);
         {tcp_closed, _Socket} ->
             Postman ! {sub, Socket},

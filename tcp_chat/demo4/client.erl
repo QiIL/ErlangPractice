@@ -17,6 +17,7 @@ connect(Nickname) ->
     {ok, Socket} = gen_tcp:connect("localhost", 4000, [binary]),
     Pid = spawn(?MODULE, chat, [Nickname, Socket]),
     gen_tcp:controlling_process(Socket, Pid),
+    online(Pid),
     Pid.
     
 %% 聊天界面，收到tcp消息就显示，若是其他命令则做其他事情
@@ -26,16 +27,22 @@ chat(Nickname, Socket) ->
             Val = binary_to_term(Bin),
             io:format("~p~n", [Val]),
             chat(Nickname, Socket);
+        {online} ->
+            gen_tcp:send(Socket, term_to_binary({online, Nickname})),
+            chat(Nickname, Socket);
         {send, Msg} ->
-            gen_tcp:send(Socket, term_to_binary(lists:concat([Nickname, ":", Msg]))),
+            gen_tcp:send(Socket, term_to_binary({talk, Nickname, Msg})),
             chat(Nickname, Socket);
         {quit} ->
+            gen_tcp:send(Socket, term_to_binary({quit, Nickname})),
             gen_tcp:close(Socket)
     end.
 
 say(Pid, Str) ->
-    Pid ! {send, Str},
-    ok.
+    Pid ! {send, Str}.
 
 quit(Pid) ->
     Pid ! {quit}.
+
+online(Pid) ->
+    Pid ! {online}.
