@@ -32,4 +32,3 @@ loop(Postman, Socket) ->
             io:format("tcp server close!~n")
     end.
     
-

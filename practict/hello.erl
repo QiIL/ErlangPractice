@@ -1,5 +1,5 @@
 % hello.erl
 -module(hello).
--export([say_hello/1]).
+-compile(export_all).
 
 say_hello() -> io:format("hello~n").
