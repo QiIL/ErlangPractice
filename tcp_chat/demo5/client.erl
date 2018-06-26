@@ -6,6 +6,10 @@ register(User, Pass) ->
     %% tcp连接
     {ok, Socket} = gen_tcp:connect("localhost", 4000, [binary]),
     gen_tcp:send(Socket, term_to_binary({regist, User, Pass}))
+    receive
+        ok ->
+            
+    end
 
 %% 登陆
 login(User, Pass) ->
