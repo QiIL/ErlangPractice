@@ -3,7 +3,9 @@
 
 %% 注册
 register(User, Pass) ->
-    jenkins:new_user(User, Pass).
+    %% tcp连接
+    {ok, Socket} = gen_tcp:connect("localhost", 4000, [binary]),
+    gen_tcp:send(Socket, term_to_binary({regist, User, Pass}))
 
 %% 登陆
 login(User, Pass) ->
@@ -16,11 +18,7 @@ login(User, Pass) ->
             Pid;
         {_, Reason} ->
             io:format("~p~n", [Reason]),
-            io:format("this account isn't exist, please regist first~n");
-        wrong_pass ->
-            io:format("Wrong Password or Username, please check your input~n");
-        _ ->
-            io:format("jenkins is angry and choose not to show you anythings~n")
+            io:format("this account isn't exist, please regist first~n")
     end.
 
 %% 接收消息
@@ -29,7 +27,7 @@ chat(Socket, User) ->
         {tcp, _Socket, Bin} ->
             Val = binary_to_term(Bin),
             case Val of
-                {broadcast, Msg} ->
+                {boardcast, Msg} ->
                     io:format("[群聊]: ~p~n", [Msg]);
                 {secrect, FromUser, Msg} ->
                     io:format("[悄悄话-~p]: ~p~n", [FromUser, Msg])
@@ -54,7 +52,8 @@ chat(Socket, User) ->
         {quit} ->
             Val = term_to_binary({quit, User}),
             gen_tcp:send(Socket, Val),
-            gen_tcp:close(Socket)
+            gen_tcp:close(Socket),
+            io:format("Goodbye my friend!")
     end.
 
 %% 上线
