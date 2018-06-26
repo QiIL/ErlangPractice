@@ -3,6 +3,7 @@
 
 start() ->
     {ok, Listen} = gen_tcp:listen(4000, [binary, {active, true}]),
+    ets:new(users, [set, named_table]),
     Jenkins = spawn(jenkins, manager, []),
     pre_loop(Listen, Jenkins).
 
@@ -17,14 +18,14 @@ loop(Jenkins, Socket) ->
             Str = binary_to_term(Bin),
             io:format("Server (unpacked) ~p~n", [Str]),
             case Str of
-                {new, Username, Pass} ->
-                    Jenkins ! {new, Username, Pass};
-                {change_pass, Username, OldPass, NewPass} ->
-                    Jenkins ! {change_pass, Username, OldPass, NewPass};
-                {talk, Username, Msg} ->
-                    Jenkins ! {broadcast, Socket, Username ++ "：" ++ Msg};
-                {quit, Username} ->
-                    Jenkins ! {quit, Socket, Username}
+                {new, User, Pass} ->
+                    Jenkins ! {new, User, Pass};
+                {change_pass, User, OldPass, NewPass} ->
+                    Jenkins ! {change_pass, User, OldPass, NewPass};
+                {talk, User, Msg} ->
+                    Jenkins ! {broadcast, Socket, User ++ "：" ++ Msg};
+                {quit, User} ->
+                    Jenkins ! {quit, Socket, User}
             end,
             loop(Jenkins, Socket);
         {tcp_closed, _Socket} ->
