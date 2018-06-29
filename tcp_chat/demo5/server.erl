@@ -2,7 +2,7 @@
 -compile(export_all).
 
 start() ->
-    {ok, Listen} = gen_tcp:listen(4000, [binary, {active, true}]),
+    {ok, Listen} = gen_tcp:listen(4000, [binary, {active, true}, {nodelay, true}]),
     ets:new(users, [set, public, named_table]),
     ets:insert(users, {admin, admin, false}),
     ets:insert(users, {qill, 11, false}),
@@ -21,46 +21,54 @@ pre_loop(Listen) ->
 loop(Socket) ->
     receive
         {tcp, _Socket, Bin} ->
-            Str = binary_to_term(Bin),
-            io:format("Server (unpacked) ~p~n", [Str]),
-            case Str of
-                {change_pass, User, OldPass, NewPass} ->
-                    io:format("change pass now~n"),
-                    gen_tcp:send(Socket, term_to_binary(change_pass(User, OldPass, NewPass)));
-                {login, User, Pass} ->
-                    io:format("login now~n"),
-                    case check_user(User) of
-                        {ok, _, _} ->
-                            ets:insert(users, {User, Pass, true, Socket}),
-                            gen_tcp:send(Socket, term_to_binary({login, User}));
-                        {err, _} ->
-                            gen_tcp:send(Socket, term_to_binary({err, "用户名/密码错误！"})),
-                            gen_tcp:close(Socket)
-                    end;
-                {talk, _User, Msg} ->
-                    io:format("speaking~n"),
-                    boardcast(ets:lookup_element(socket_list, sockets, 2), Socket, Msg);
-                {secret, FromUser, ToUser, Msg} ->
-                    io:format("secret~n"),
-                    Tsocket = get_socket(ToUser),
-                    gen_tcp:send(Tsocket, term_to_binary({secret, FromUser, Msg}));
-                {quit, User} ->
-                    io:format("quit~n"),
-                    boardcast(ets:lookup_element(socket_list, sockets, 2), Socket, User ++ "下线了~~");
-                {showets} ->
-                    Ets3 = ets:match(users, {'$1', '$2', '$3'}),
-                    Ets4 = ets:match(users, {'$1', '$2', '$3', '$4'}),
-                    io:format("ets3: ~p~n", [Ets3]),
-                    io:format("ets4: ~p~n", [Ets4]);
-                Other ->
-                    io:format("server get ~p", [Other])
-            end,
+            Msg = binary_to_term(Bin),
+            io:format("Server (unpacked) ~p~n", [Msg]),
+            handle_msg(Msg, Socket),
             loop(Socket);
         {tcp_closed, Socket} ->
             Sl = lists:delete(Socket, ets:lookup_element(socket_list, sockets, 2)),
             ets:insert(socket_list, {sockets, Sl}),
             io:format("tcp server close!~n")
     end.
+
+%% 处理返回消息函数
+handle_msg(showets, _) ->
+    Ets3 = ets:match(users, {'$1', '$2', '$3'}),
+    Ets4 = ets:match(users, {'$1', '$2', '$3', '$4'}),
+    io:format("ets3: ~p~n", [Ets3]),
+    io:format("ets4: ~p~n", [Ets4]);
+handle_msg({login, User, Pass}, Socket) ->
+    case check_user(ets:lookup(users, User), Pass, true) of
+        {ok, User, _Pass} ->
+            ets:insert(users, {User, Pass, true, Socket}),
+            send_msg(Socket, {login, User});
+        {ok, User, _Pass, _Socket} ->
+            %% 先关掉原先的socket，然后再重新插入
+            [{_, _, _, OriginSocket}] = ets:lookup(users, User),
+            gen_tcp:close(OriginSocket),
+            ets:insert(users, {User, Pass, true, Socket}),
+            send_msg(Socket, {login, User});
+        {err, Reason} ->
+            io:format("handle_msg reason: ~p~n", [Reason]),
+            send_msg(Socket, {err, Reason})
+    end;
+handle_msg({change_pass, User, OldPass, NewPass}, Socket) ->
+    case check_user(ets:lookup(users, User), OldPass, true) of
+        {ok, _User, _Pass} ->
+            ets:insert(users, {User, NewPass, false}),
+            send_msg(Socket, {cp, User});
+        {ok, _User, _Pass, _Socket} ->
+            ets:insert(users, {User, NewPass, false}),
+            send_msg(Socket, {cp, User});
+        {err, Reason} ->
+            io:format("handle_msg reason: ~p~n", [Reason]),
+            send_msg(Socket, {err, Reason})
+    end.
+
+%% 发送消息
+send_msg(Socket, Msg) ->
+    io:format("Msg is : ~p~n", [Msg]),
+    gen_tcp:send(Socket, term_to_binary(Msg)).
 
 %% 创建用户
 new_user(User, Pass) ->
@@ -69,28 +77,36 @@ new_user(User, Pass) ->
         _ -> {err, "User exist"}
     end.
 
-%% 检查用户是否存在
-check_user(User) ->
-    case ets:lookup(users, User) of
-        [] -> {no_user, "this account isn't exist, please regist first"};
-        [{User, Pass, _}] -> {ok, User, Pass};
-        [{User, Pass, _, Socket}] -> {ok, User, Pass, Socket}
-    end.
+%% 检查用户存在性
+%% 不检查密码
+check_user([{User, Pass, _}], _, false) ->
+    {ok, User, Pass};
+%% 检查密码和存在性
+check_user([{User, Pass, _}], Fpass, true) when Pass =:= Fpass ->
+    {ok, User, Pass};
+check_user([{_, _, _}], _, true) ->
+    {err, "username/password is wrong"};
+check_user([{User, Pass, _, Socket}], Fpass, true)  when Pass =:= Fpass ->
+    {ok, User, Pass, Socket};
+check_user([{_, _, _, _}], _, true) ->
+    {err, "username/password is wrong"};
+check_user([], _, _) ->
+    {err, "account isn't exist"}.
 
 %%  获取用户socket
 get_socket(User) ->
     ets:lookup_element(users, User, 4).
 
-%% 修改密码
-change_pass(User, OldPass, NewPass) ->
-    case check_user(User) of
-        {ok, User, Pass} -> 
-            case OldPass =:= Pass of
-                true -> ets:insert(users, {User, NewPass}), {ok, "change password success"};
-                false -> {err, "Password is wrong!"}
-            end;
-        {Error, Reason} -> {Error, Reason}
-    end.
+% %% 修改密码
+% change_pass(User, OldPass, NewPass) ->
+%     case check_user(User) of
+%         {ok, User, Pass} -> 
+%             case OldPass =:= Pass of
+%                 true -> ets:insert(users, {User, NewPass}), {ok, "change password success"};
+%                 false -> {err, "Password is wrong!"}
+%             end;
+%         {Error, Reason} -> {Error, Reason}
+%     end.
 
 %% 广播
 boardcast([], _, _) ->
