@@ -19,56 +19,59 @@ loop(Socket, User, Min, ChatNum) ->
             deal(binary_to_term(Bin), Socket),
             loop(Socket, User, Min, ChatNum);
         online_num ->
-            gen_tcp:send(Socket, term_to_binary(check_online)),
+            send_server(Socket, check_online),
             loop(Socket, User, Min, ChatNum);
         showets ->
-            io:format("show ets now ~n"),
-            gen_tcp:send(Socket, term_to_binary(showets)),
+            send_server(Socket, showets),
             loop(Socket, User, Min, ChatNum);
         {change_pass, OldPass, NewPass} ->
-            io:format("change_pass now~n"),
-            Val = term_to_binary({change_pass, User, OldPass, NewPass}),
-            gen_tcp:send(Socket, Val),
+            send_server(Socket, {change_pass, User, OldPass, NewPass}),
             loop(Socket, User, Min, ChatNum);
-        {group, GroupName} ->
-            gen_tcp:send(Socket, term_to_binary({group, User, GroupName})),
+        {new_group, GroupName} ->
+            send_server(Socket, {new_group, User, GroupName}),
             loop(Socket, User, Min, ChatNum);
-        show_group -> 
-            io:format("show group now ~n"),
-            gen_tcp:send(Socket, term_to_binary(show_group)),
+        show_group ->
+            send_server(Socket, {show_group, User}),
+            loop(Socket, User, Min, ChatNum);
+        {group_talk, GroupId, Msg} ->
+            send_server(Socket, {group_talk, GroupId, User, Msg}),
+            loop(Socket, User, Min, ChatNum);
+        {group_join, GroupId} ->
+            send_server(Socket, {group_join, GroupId, User}),
+            loop(Socket, User, Min, ChatNum);
+        {group_quit, GroupId} ->
+            send_server(Socket, {group_quit, GroupId, User}),
             loop(Socket, User, Min, ChatNum);
         {talk, GroupId, Msg} ->
-            io:format("talk now~n"),
             {{_, _, _}, {_, NewMins, _}} = calendar:now_to_local_time(os:timestamp()),
             case {Min =:= NewMins, ChatNum < 50} of
                 {true, true} -> 
-                    Val = term_to_binary({talk, GroupId, User, Msg}),
-                    gen_tcp:send(Socket, Val),
+                    send_server(Socket, {talk, GroupId, User, Msg}),
                     loop(Socket, User, NewMins, ChatNum+1);
                 {true, false} ->
                     io:format("you talk too fast, emmmmmm you should take a coffee and have a rest~n"),
                     loop(Socket, User, NewMins, ChatNum);
                 {false, _} ->
-                    Val = term_to_binary({talk, GroupId, User, Msg}),
-                    gen_tcp:send(Socket, Val),
+                    send_server(Socket, {talk, GroupId, User, Msg}),
                     loop(Socket, User, NewMins, 0)
             end;
         {secrect, ToUser, Msg} ->
-            io:format("secrect now~n"),
-            Val = term_to_binary({secrect, User, ToUser, Msg}),
-            gen_tcp:send(Socket, Val),
+            send_server(Socket, {secrect, User, ToUser, Msg}),
             loop(Socket, User, Min, ChatNum);
         {kick, Kuser} ->
             io:format("kicking ~p~n", [Kuser]),
-            gen_tcp:send(Socket, term_to_binary({kick, User, Kuser})),
+            send_server(Socket, {kick, User, Kuser}),
             loop(Socket, User, Min, ChatNum);
         quit ->
-            io:format("quit now~n"),
-            Val = term_to_binary({quit, User}),
-            gen_tcp:send(Socket, Val),
+            send_server(Socket, {quit, User}),
             io:format("Goodbye my friend!~n");
         squit ->
-            io:format("Squit, force goodbye my friend~n")
+            io:format("Squit, force goodbye my friend~n");
+        {tcp_closed, Socket} ->
+            io:format("tcp server close by unknow reason!~n")
+    after 100000 ->
+        send_server(Socket, testalive),
+        loop(Socket, User, Min, ChatNum)
     end.
 
 %% 查看数据库
@@ -89,11 +92,23 @@ change_pass(Pid, OldPass, NewPass) ->
 
 %% 新建群组
 new_group(Pid, GroupName) ->
-    Pid ! {group, GroupName}.
+    Pid ! {new_group, GroupName}.
 
 %% 查看群组
 show_group(Pid) ->
     Pid ! show_group.
+
+%% 群聊说话
+group_talk(Pid, GroupId, Msg) ->
+    Pid ! {group_talk, GroupId, Msg}.
+
+%% 加入群聊
+group_join(Pid, GroupId) ->
+    Pid ! {group_join, GroupId}.
+
+%% 退出群聊
+group_quit(Pid, GroupId) ->
+    Pid ! {group_quit, GroupId}.
 
 %% 说话
 say(Pid, Msg) ->
@@ -126,6 +141,8 @@ deal({group, GroupId, GroupName, UserList}, _) ->
     io:format("New group userlist is: ~p~n", [UserList]);
 deal({boardcast, User, Msg}, _) ->
     io:format("~p: ~p~n", [User, Msg]);
+deal({boardcast, GroupName, User, Msg}, _) ->
+    io:format("[~p][~p]: ~p~n", [GroupName, User, Msg]);
 deal({secrect, FromUser, Msg}, _) ->
     io:format("Whisper(~p): ~p~n", [FromUser, Msg]);
 deal({err, Reason}, Socket) ->
@@ -137,3 +154,6 @@ deal({squit, Reason}, _Socket) ->
     self() ! squit;
 deal(Others, _) ->
     io:format("other: ~p~n", [Others]).
+
+send_server(Socket, Msg) ->
+    gen_tcp:send(Socket, term_to_binary(Msg)).
