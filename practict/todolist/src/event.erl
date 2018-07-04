@@ -14,7 +14,7 @@ loop(S = #state{server=Server, to_go=[T|Next]}) ->
         end
     end.
 
-%% 由于Erlang受49天(49*24*60*60毫秒)的限制，
+%% 由于Erlang受49天(49*24*60*60毫秒)的限制
 %% 因此需要使用这个函数
 normalize(N) ->
     Litmit = 49 * 24 * 60 *60,
