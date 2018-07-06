@@ -209,4 +209,4 @@ add_group([{_, _, _, GroupPid} | T], Socket) ->
 clean_group([], _) -> ok;
 clean_group([{_, _, _, GroupPid} | T], Socket) ->
     GroupPid ! {offline, Socket},
-    add_group(T, Socket).
+    clean_group(T, Socket).
