@@ -5,6 +5,7 @@
     handle_info/2, terminate/2, code_change/3
 ]).
 -behaviour(gen_server).
+-include("../include/records.hrl").
 -record(chat, {user, pass, socket}).
 
 new(Socket) -> gen_server:start_link(?MODULE, [Socket], []).
@@ -74,11 +75,13 @@ handle_msg({change_pass, Username, OldPass, NewPass}, Socket, Chat) ->
     case check_user(ets:lookup(users, Username), OldPass, true) of
         {ok, _User, _Pass} ->
             ets:insert(users, {Username, NewPass, false}),
+            mmnesia:write({chat_user, Username, NewPass}),
             deal_socket(minus, Socket),
             send_msg(Socket, {change_pass_success, Username}),
             send_msg(Socket, "Pass change success!");
         {ok, _User, _Pass, _Socket} ->
             ets:insert(users, {Username, NewPass, false}),
+            mmnesia:write({chat_user, Username, NewPass}),
             deal_socket(minus, Socket),
             send_msg(Socket, {change_pass_success, Username}),
             send_msg(Socket, "Pass change success!");
@@ -91,13 +94,16 @@ handle_msg({kick, Username, Kuser}, _Socket, Chat) ->
     kick_user(ets:lookup(users, Username), ets:lookup(users, Kuser)),
     Chat;
 handle_msg({talk, User, Msg}, Socket, Chat) ->
+    man_db ! {save_rec, broadcast, User, all, Msg},
     broadcast(ets:lookup_element(socket_list, sockets, 2), Socket, User, Msg),
     Chat;
 handle_msg({whisper, User, ToUser, Msg}, Socket, Chat) ->
     case ets:lookup(users, ToUser) of
         [] -> send_msg(Socket, "User: " ++ atom_to_list(ToUser) ++ " isn't exist");
         [{_, _, false}] -> send_msg(Socket, "User: " ++ atom_to_list(ToUser) ++ " not online");
-        [{_, _, true, ToSocket}] -> send_msg(ToSocket, {whisper, User, Msg})
+        [{_, _, true, ToSocket}] -> 
+            man_db ! {save_rec, whisper, User, ToUser, Msg},
+            send_msg(ToSocket, {whisper, User, Msg})
     end,
     Chat;
 handle_msg(check_online, Socket, Chat) ->
@@ -124,6 +130,11 @@ handle_msg({show_group, Username}, _Socket, Chat) ->
 handle_msg({group_speak, GroupId, Username, Msg}, Socket, Chat) ->
     [{_, _, _, GroupPid}] = ets:match_object(groups, {GroupId, '$1', '$2', '$3'}),
     GroupPid !{speak, Username, Socket, Msg},
+    man_db ! {save_rec, group_talk, Username, GroupId, Msg},
+    Chat;
+handle_msg({get_rec, Username}, Socket, Chat) ->
+    Recs = get_chat_rec(Username),
+    send_msg(Socket, {recs, Recs}),
     Chat;
 handle_msg(Msg, _Socket, Chat) ->
     io:format("Unexpected tcp message ~p, ~n", [Msg]),
@@ -205,3 +216,8 @@ group_offline([], _) -> ok;
 group_offline([{_, _, _, GroupPid} | T], Socket) ->
     GroupPid ! {offline, Socket},
     group_offline(T, Socket).
+
+get_chat_rec(User) ->
+    R = #chat_record{user='$1', target='$2', _='_'},
+    Guards = [{'orelse', {'==', '$1', User}, {'==', '$2', User}}],
+    mmnesia:search(chat_record, R, Guards, ['$_']).

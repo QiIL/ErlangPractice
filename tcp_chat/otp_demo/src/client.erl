@@ -6,7 +6,8 @@
     whisper/3, check_online/1, new_group/2, join_group/2,
     show_group/1, leave_group/2, group_speak/3,
     init/1, handle_call/3, handle_cast/2,
-    handle_info/2, terminate/2, code_change/3
+    handle_info/2, terminate/2, code_change/3,
+    get_rec/1
 ]).
 -record(client, {username, pass, socket, min=time_min(), chat_num=0}).
 -behaviour(gen_server).
@@ -29,6 +30,7 @@ join_group(Pid, GroupId) -> gen_server:call(Pid, {join_group, GroupId}).
 show_group(Pid) -> gen_server:call(Pid, show_group).
 leave_group(Pid, GroupId) -> gen_server:call(Pid, {leave_group, GroupId}).
 group_speak(Pid, GroupId, Msg) -> gen_server:call(Pid, {group_speak, GroupId, Msg}).
+get_rec(Pid) -> gen_server:call(Pid, get_rec).
 
 init([]) -> 
     {ok, #client{}}.
@@ -84,6 +86,9 @@ handle_call(show_group, _From, Client) ->
 handle_call({group_speak, GroupId, Msg}, _From, Client) ->
     send_server(Client#client.socket, {group_speak, GroupId, Client#client.username, Msg}),
     {reply, Msg, Client};
+handle_call(get_rec, _From, Client) ->
+    send_server(Client#client.socket, {get_rec, Client#client.username}),
+    {reply, ok, Client};
 handle_call(quit, _From, Client) ->
     {stop, normal, ok, Client}.
 
@@ -144,6 +149,8 @@ deal({err, Reason}, _Socket) ->
 deal({squit, Reason}, _Socket) ->
     io:format("~p~n", [Reason]),
     self() ! {squit, Reason};
+deal({recs, Recs}, _Socket) ->
+    output(Recs);
 deal(Others, _) ->
     io:format("other: ~p~n", [Others]).
 
@@ -154,3 +161,14 @@ send_server(Socket, Msg) ->
 time_min() ->
     {{_, _, _}, {_, Min, _}} = calendar:now_to_local_time(os:timestamp()),
     Min.
+
+%% 输出聊天记录
+output([]) -> ok;
+output([{chat_record, _Id, User, Type, Target, Timestamp, Msg} | T]) ->
+    DateTime = timestamp_to_datetime(Timestamp),
+    io:format("[~p][~p][~p]: ~p (~p)~n", [Type, User, Target, Msg, DateTime]),
+    output(T).
+
+timestamp_to_datetime(Timestamp) ->
+    calendar:gregorian_seconds_to_datetime(Timestamp +
+      calendar:datetime_to_gregorian_seconds({{1970,1,1}, {0,0,0}})).

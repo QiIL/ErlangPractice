@@ -12,11 +12,11 @@
 -behaviour(gen_server).
 -record(group, {id, name, users, sockets}).
 
-new(GroupId, GroupName, Owner) ->
-    gen_server:start_link(?MODULE, [GroupId, GroupName, [Owner], []], []).
+new(GroupId, GroupName, Members) ->
+    gen_server:start_link(?MODULE, [GroupId, GroupName, Members, []], []).
 
-new(GroupId, GroupName, Owner, OwnerSocket) ->
-    gen_server:start_link(?MODULE, [GroupId, GroupName, [Owner], [OwnerSocket]], []).
+new(GroupId, GroupName, Members, SocketLists) ->
+    gen_server:start_link(?MODULE, [GroupId, GroupName, Members, SocketLists], []).
 
 join(Pid, User, Socket) -> gen_server:cast(Pid, {join, User, Socket}).
 leave(Pid, User, Socket) -> gen_server:cast(Pid, {leave, User, Socket}).

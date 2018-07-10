@@ -1,0 +1,3 @@
+-record(chat_user, {username, pass}).
+-record(chat_group, {id, name, owner, members}).
+-record(chat_record, {id, user, type, target, time, msg}).
