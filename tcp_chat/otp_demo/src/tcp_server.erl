@@ -10,15 +10,15 @@
 %% 启动载入各种表
 start_link() -> 
     %% 打开数据库
-    mmnesia:start(),
+    mmnesia:start_link(),
     {ok, Listen} = gen_tcp:listen(4000, [binary, {active, true}]),
     %% 用户session
     ets:new(users, [set, public, named_table]),
-    ChatUsers = mmnesia:search(chat_user, #chat_user{_='_'}, []),
+    ChatUsers = mmnesia:search(chat_user, #chat_user{_='_'}, [], ['$_']),
     init_users(ChatUsers),
     %% 群组表, 建立在线数据
     ets:new(groups, [public, named_table]),
-    Groups = mmnesia:search(chat_group, #chat_group{_='_'}, []),
+    Groups = mmnesia:search(chat_group, #chat_group{_='_'}, [], ['$_']),
     create_group_process(Groups),
     %% socket表
     ets:new(socket_list, [set, public, named_table]),
@@ -58,8 +58,13 @@ code_change(_OldVsn, Listen, _Extra) ->
 create_group_process([]) -> ok;
 create_group_process([{chat_group, Gid, GName, _Owner, Members} | T]) ->
     {ok, NormalPid} = groups:new(Gid, GName, Members),
-    ets:insert(groups, {Gid, GName, Members, NormalPid}),
+    create_groups_ets(Gid, GName, Members, NormalPid),
     create_group_process(T).
+
+create_groups_ets(_, _, [], _) -> ok;
+create_groups_ets(Gid, GName, [H | T], NormalPid) ->
+    ets:insert(groups, {{H, Gid}, GName, NormalPid}),
+    create_groups_ets(Gid, GName, T, NormalPid).
 
 init_users([]) -> ok;
 init_users([{chat_user, Username, Pass} | T]) ->

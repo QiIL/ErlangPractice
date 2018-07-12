@@ -44,16 +44,16 @@ handle_msg({login, Username, Pass}, Socket, Chat) ->
         {ok, _, _} ->
             ets:insert(users, {Username, Pass, true, Socket}),
             deal_socket(add, Socket),
-            io:format("groups: ~p~n", [ets:match_object(groups, {'$1', '$2', Username, '$3'})]),
-            group_online(ets:match_object(groups, {'$1', '$2', Username, '$3'}), Socket),
+            io:format("groups: ~p~n", [ets:match_object(groups, {{Username, '_'}, '$1', '$2'})]),
+            group_online(ets:match_object(groups, {{Username, '_'}, '$1', '$2'}), Socket),
             send_msg(Socket, {login_success, Username});
         {ok, _, _, _} ->
             %% 先关掉原先的socket，然后再重新插入
             [{_, _, _, OriginSocket}] = ets:lookup(users, Username),
             deal_socket(replace, OriginSocket, Socket),
-            io:format("groups: ~p~n", [ets:match_object(groups, {'$1', '$2', Username, '$3'})]),
-            group_offline(ets:match_object(groups, {'$1', '$2', Username, '$3'}), OriginSocket),
-            group_online(ets:match_object(groups, {'$1', '$2', Username, '$3'}), Socket),
+            io:format("groups: ~p~n", [ets:match_object(groups, {{Username, '_'}, '$1', '$2'})]),
+            group_offline(ets:match_object(groups, {{Username, '_'}, '$1', '$2'}), OriginSocket),
+            group_online(ets:match_object(groups, {{Username, '_'}, '$1', '$2'}), Socket),
             ets:insert(users, {Username, Pass, true, Socket}),
             send_msg(OriginSocket, {squit, "your account is logining in other place"}),
             send_msg(Socket, {login_success, Username});
@@ -74,14 +74,16 @@ handle_msg(showets, _Socket, Chat) ->
 handle_msg({change_pass, Username, OldPass, NewPass}, Socket, Chat) ->
     case check_user(ets:lookup(users, Username), OldPass, true) of
         {ok, _User, _Pass} ->
+            io:format("new password = :~p~n", [NewPass]),
             ets:insert(users, {Username, NewPass, false}),
-            mmnesia:write({chat_user, Username, NewPass}),
+            mmnesia:change_pass(Username, NewPass),
             deal_socket(minus, Socket),
             send_msg(Socket, {change_pass_success, Username}),
             send_msg(Socket, "Pass change success!");
         {ok, _User, _Pass, _Socket} ->
+            io:format("new password = :~p~n", [NewPass]),
             ets:insert(users, {Username, NewPass, false}),
-            mmnesia:write({chat_user, Username, NewPass}),
+            mmnesia:change_pass(Username, NewPass),
             deal_socket(minus, Socket),
             send_msg(Socket, {change_pass_success, Username}),
             send_msg(Socket, "Pass change success!");
@@ -89,12 +91,12 @@ handle_msg({change_pass, Username, OldPass, NewPass}, Socket, Chat) ->
             io:format("handle_msg reason: ~p~n", [Reason]),
             send_msg(Socket, {err, Reason})
     end,
-    Chat;
+    Chat#chat{pass = NewPass};
 handle_msg({kick, Username, Kuser}, _Socket, Chat) ->
     kick_user(ets:lookup(users, Username), ets:lookup(users, Kuser)),
     Chat;
 handle_msg({talk, User, Msg}, Socket, Chat) ->
-    man_db ! {save_rec, broadcast, User, all, Msg},
+    mmnesia:save_rec(broadcast, User, all, Msg),
     broadcast(ets:lookup_element(socket_list, sockets, 2), Socket, User, Msg),
     Chat;
 handle_msg({whisper, User, ToUser, Msg}, Socket, Chat) ->
@@ -102,7 +104,7 @@ handle_msg({whisper, User, ToUser, Msg}, Socket, Chat) ->
         [] -> send_msg(Socket, "User: " ++ atom_to_list(ToUser) ++ " isn't exist");
         [{_, _, false}] -> send_msg(Socket, "User: " ++ atom_to_list(ToUser) ++ " not online");
         [{_, _, true, ToSocket}] -> 
-            man_db ! {save_rec, whisper, User, ToUser, Msg},
+            mmnesia:save_rec(whisper, User, ToUser, Msg),
             send_msg(ToSocket, {whisper, User, Msg})
     end,
     Chat;
@@ -112,25 +114,28 @@ handle_msg(check_online, Socket, Chat) ->
 handle_msg({new_group, Username, GroupName}, Socket, Chat) ->
     Id = ets:last(groups),
     {ok, NewGroupPid} = groups:new(Id+1, GroupName, Username, Socket),
-    ets:insert(groups, {Id+1, GroupName, Username, NewGroupPid}),
+    ets:insert(groups, {{Username, Id+1}, GroupName, NewGroupPid}),
+    mmnesia:create_group(GroupName, Username),
     send_msg(Socket, "new Group ok!"),
     Chat;
 handle_msg({join_group, GroupId, Username}, Socket, Chat) ->
-    [{_, _, _, GroupPid}] = ets:match_object(groups, {GroupId, '$1', '$2', '$3'}),
+    [{_, Gname, GroupPid} | _] = ets:match_object(groups, {{'_', GroupId}, '$1', '$2'}),
     GroupPid !{join, Username, Socket},
+    ets:insert(groups, {{Username, GroupId}, Gname, GroupPid}),
     Chat;
 handle_msg({leave_group, GroupId, Username}, Socket, Chat) ->
-    [{_, _, _, GroupPid}] = ets:match_object(groups, {GroupId, '$1', '$2', '$3'}),
+    [{_, _, GroupPid}] = ets:match_object(groups, {{Username, GroupId}, '$1', '$2'}),
     GroupPid !{leave, Username, Socket},
+    ets:delete(groups, {Username, GroupId}),
     Chat;
 handle_msg({show_group, Username}, _Socket, Chat) ->
-    UserGroups = ets:match_object(groups, {'$1', '$2', Username, '$3'}),
+    UserGroups = ets:match_object(groups, {{Username, '_'}, '$1', '$2'}),
     io:format("~p~n", [UserGroups]),
     Chat;
 handle_msg({group_speak, GroupId, Username, Msg}, Socket, Chat) ->
-    [{_, _, _, GroupPid}] = ets:match_object(groups, {GroupId, '$1', '$2', '$3'}),
+    [{_, _, GroupPid}] = ets:match_object(groups, {{Username, GroupId}, '$1', '$2'}),
     GroupPid !{speak, Username, Socket, Msg},
-    man_db ! {save_rec, group_talk, Username, GroupId, Msg},
+    mmnesia:save_rec(group_talk, Username, GroupId, Msg),
     Chat;
 handle_msg({get_rec, Username}, Socket, Chat) ->
     Recs = get_chat_rec(Username),
@@ -208,12 +213,12 @@ check_online_num() ->
     length(ets:lookup_element(socket_list, sockets, 2)).
 
 group_online([], _) -> ok;
-group_online([{_, _, _, GroupPid} | T], Socket) ->
+group_online([{_, _, GroupPid} | T], Socket) ->
     GroupPid ! {online, Socket},
     group_online(T, Socket).
 
 group_offline([], _) -> ok;
-group_offline([{_, _, _, GroupPid} | T], Socket) ->
+group_offline([{_, _, GroupPid} | T], Socket) ->
     GroupPid ! {offline, Socket},
     group_offline(T, Socket).
 

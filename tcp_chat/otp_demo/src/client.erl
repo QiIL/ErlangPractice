@@ -170,5 +170,6 @@ output([{chat_record, _Id, User, Type, Target, Timestamp, Msg} | T]) ->
     output(T).
 
 timestamp_to_datetime(Timestamp) ->
-    calendar:gregorian_seconds_to_datetime(Timestamp +
-      calendar:datetime_to_gregorian_seconds({{1970,1,1}, {0,0,0}})).
+    {{Y, M, D}, {H, Min, S}} = calendar:gregorian_seconds_to_datetime(Timestamp +
+      calendar:datetime_to_gregorian_seconds({{1970,1,1}, {0,0,0}})),
+    {{Y, M, D}, {(H + 8) rem 24, Min, S}}.
