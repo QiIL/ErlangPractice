@@ -84,7 +84,7 @@ handle_call({change_pass, Username, NewPass}, _From, State) ->
 handle_call({create_group, Gname, Owner}, _From, State) ->
     Id = last_tab(group),
     write({chat_group, Id+1, Gname, Owner, [Owner]}),
-    {reply, create_group_ok, State};
+    {reply, {ok, Id}, State};
 
 handle_call({add_group_member, Gid, Username}, _From, State) ->
     [{_, _, Gname, Owner, Members}] = search(chat_group, #chat_group{id='$1', _='_'}, [{'==', '$1', Gid}], ['$_']),

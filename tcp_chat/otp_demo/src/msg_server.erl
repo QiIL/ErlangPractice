@@ -112,10 +112,9 @@ handle_msg(check_online, Socket, Chat) ->
     send_msg(Socket, "the online number is: " ++ integer_to_list(check_online_num())),
     Chat;
 handle_msg({new_group, Username, GroupName}, Socket, Chat) ->
-    Id = ets:last(groups),
+    {ok, Id} = mmnesia:create_group(GroupName, Username),
     {ok, NewGroupPid} = groups:new(Id+1, GroupName, Username, Socket),
     ets:insert(groups, {{Username, Id+1}, GroupName, NewGroupPid}),
-    mmnesia:create_group(GroupName, Username),
     send_msg(Socket, "new Group ok!"),
     Chat;
 handle_msg({join_group, GroupId, Username}, Socket, Chat) ->
