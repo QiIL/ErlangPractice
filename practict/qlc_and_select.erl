@@ -1,4 +1,4 @@
--module(mmnesia).
+-module(qlc_and_select).
 -export([
     do_test/1, do_test2/1,
     search/3, search/4, last_tab/1, write/1
